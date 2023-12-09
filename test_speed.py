@@ -1,4 +1,5 @@
 import click
+import gc
 import time
 import yaml
 import pandas as pd
@@ -79,7 +80,7 @@ def run_model(
                 outputs.last_hidden_state, batch_dict["attention_mask"]
             )
 
-            embs.append(embeddings)
+    #        embs.append(embeddings)
     # if not only_tokenize:
     #     embs = torch.vstack(embs)
     return embs
@@ -109,7 +110,7 @@ def main(
 
         loaded(
             **tokenizer.batch_encode_plus(
-                [text],
+                [text[:10000]],
                 max_length=512,
                 truncation=True,
                 return_tensors="pt",
@@ -132,6 +133,7 @@ def main(
                 )
                 tt = time.monotonic() - st
                 times.append(1000 * tt)
+                gc.collect()
 
             times = np.array(times)
             print(param_combo)
@@ -141,7 +143,7 @@ def main(
             outputs.append(
                 {
                     "model": model_name,
-                    "one_doc_ms": round(times.mean() / len(docs), 3),
+                    "one_doc_ms": round(times.sum() / len(docs), 3),
                     "mean_sum_ms": round(times.mean(), 3),
                     "std_prc": round(times.std() / times.mean(), 3),
                     **param_combo,

@@ -5,9 +5,9 @@ models:
   - "intfloat/multilingual-e5-small"
 params:
   batch_size: [1,2,4,8,16,32,64]
-  clip_str: [1024, 2048, 100000]
+  clip_str: [1024, 2048, 32000]
   seq_len: [128, 512]
 input: "/root/encoder_speed_test/input.txt"
 output: "/root/encoder_speed_test/stats.tsv"
 docs_count: 1000
-num_runs: 10
+num_runs: 1
