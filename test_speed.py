@@ -25,7 +25,7 @@ import torch
 torch.set_num_threads(N_CPU)
 
 from transformers import AutoTokenizer, AutoModel
-
+from optimum.onnxruntime import ORTModelForFeatureExtraction
 import copy
 
 
@@ -73,6 +73,7 @@ def run_model(
             max_length=max_length,
             truncation=True,
             return_tensors="pt",
+            return_token_type_ids=True
         )
         if not only_tokenize:
             outputs = model(**batch_dict)
@@ -103,52 +104,59 @@ def main(
 
     outputs = []
 
-    for model_name in config["models"]:
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        loaded = AutoModel.from_pretrained(model_name)
-        params = make_kwargs_combinations(config["params"])
+    for model_type in config["models"]:
+        for model_name in config["models"][model_type]:
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            if model_type == 'vanilla':
+                loaded = AutoModel.from_pretrained(model_name)
+            elif model_type == 'onnx':
+                loaded = ORTModelForFeatureExtraction.from_pretrained(model_name, file_name="onnx/model.onnx")
 
-        loaded(
-            **tokenizer.batch_encode_plus(
-                [text[:10000]],
-                max_length=512,
-                truncation=True,
-                return_tensors="pt",
-            )
-        )
-        print(f"{model_name} warmed")
+            params = make_kwargs_combinations(config["params"])
 
-        for param_combo in params:
-            times = []
-            for _ in range(config["num_runs"]):
-                st = time.monotonic()
-                embs = run_model(
-                    docs,
-                    loaded,
-                    tokenizer,
-                    param_combo["batch_size"],
-                    only_tokenize=False,
-                    cut=param_combo["clip_str"],
-                    max_length=param_combo["seq_len"],
+            loaded(
+                **tokenizer.batch_encode_plus(
+                    [text[:2048]],
+                    max_length=512,
+                    truncation=True,
+                    return_tensors="pt",
+                    return_token_type_ids=True
                 )
-                tt = time.monotonic() - st
-                times.append(1000 * tt)
-                gc.collect()
+            )
+            print(f"{model_name} warmed")
 
-            times = np.array(times)
-            print(param_combo)
-            print(
-                f"{times.mean():.3f} per sample: {times.mean()/len(docs):.3f} ms, std_prc of runs: {times.std()/times.mean():.3f}"
-            )
-            outputs.append(
-                {
-                    "model": model_name,
-                    "one_doc_ms": round(times.sum() / len(docs), 3),
-                    "mean_sum_ms": round(times.mean(), 3),
-                    "std_prc": round(times.std() / times.mean(), 3),
-                    **param_combo,
-                }
-            )
+            for param_combo in params:
+                times = []
+                for _ in range(config["num_runs"]):
+                    st = time.monotonic()
+                    embs = run_model(
+                        docs,
+                        loaded,
+                        tokenizer,
+                        param_combo["batch_size"],
+                        only_tokenize=False,
+                        cut=param_combo["clip_str"],
+                        max_length=param_combo["seq_len"],
+                    )
+                    tt = time.monotonic() - st
+                    times.append(1000 * tt)
+                    gc.collect()
+
+                times = np.array(times)
+                print(param_combo)
+                print(
+                    f"{times.mean():.3f} per sample: {times.mean()/len(docs):.3f} ms, std_prc of runs: {times.std()/times.mean():.3f}"
+                )
+                outputs.append(
+                    {
+                        "model": model_name,
+                        "model_type": model_type,
+                        "one_doc_ms": round(times.sum() / len(docs), 3),
+                        "mean_sum_ms": round(times.mean(), 3),
+                        "std_prc": round(times.std() / times.mean(), 3),
+                        **param_combo,
+                    }
+                )
 
     df = pd.DataFrame(outputs)
     df.to_csv(config["output"], index=False, sep="\t")
